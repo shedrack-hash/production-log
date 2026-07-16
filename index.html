@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head> 
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Production Log</title>
+  <base target="_top">
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Force browser-native datalist dropdown arrows to be visible */
+    input[list]::-webkit-calendar-picker-indicator {
+      display: inline-block !important;
+      opacity: 1 !important;
+      cursor: pointer;
+      color: #4b5563; 
+      transition: all 150ms ease;
+    }
+
+    input[list]::-webkit-calendar-picker-indicator:hover {
+      transform: scale(1.1);
+    }
+
+    input, select, textarea, button {
+      min-height: 44px;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 font-sans min-h-screen pb-10 flex flex-col items-center justify-start">
+
+  <!-- Landing / Login Screen Container -->
+  <div id="loginScreen" class="hidden w-full max-w-md p-6 bg-white rounded-lg shadow-lg mt-12 mx-4 transition-all duration-300">
+    <div class="flex flex-col items-center mb-6">
+      <img src="https://www.kenyasweets.com/wp-content/uploads/2021/10/KSL-Logo.png" alt="KSL Logo" class="h-16 w-auto object-contain mb-4" onerror="this.style.display='none'">
+      <h2 class="text-2xl font-bold text-gray-800">KSL Log Portal</h2>
+      <p class="text-sm text-gray-500 mt-1 text-center">Please sign in with your credentials to access the real-time production entry sheets.</p>
+    </div>
+    
+    <form id="loginForm" onsubmit="handleLoginSubmit(event)" class="space-y-4">
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 uppercase">Email Address</label>
+        <input type="email" id="loginEmail" required class="w-full mt-1 px-3 py-2 border rounded bg-white font-medium text-gray-700 focus:ring-2 focus:ring-blue-400 focus:outline-none" placeholder="shedrack@kenyasweets.com">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 uppercase">Access Passcode</label>
+        <input type="password" id="loginPasscode" required class="w-full mt-1 px-3 py-2 border rounded bg-white font-medium text-gray-700 focus:ring-2 focus:ring-blue-400 focus:outline-none" placeholder="••••••••">
+      </div>
+      <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold p-3 rounded-lg shadow transition duration-200 uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-blue-400">
+        Sign In
+      </button>
+    </form>
+  </div>
+
+  <!-- Main App Container (Hidden until authorized) -->
+  <div id="mainApp" class="hidden w-full max-w-xl md:max-w-2xl px-4 pt-6 transition-all duration-300">
+    
+    <!-- Header Container with Sign Out Button -->
+    <div class="relative bg-blue-300 p-4 rounded-t-lg shadow-md border-b border-gray-100 flex items-center justify-center space-x-4">
+      <img src="https://www.kenyasweets.com/wp-content/uploads/2021/10/KSL-Logo.png" alt="KSL Logo" class="h-12 w-auto object-contain" onerror="this.style.display='none'">
+      <h1 class="text-xl font-bold tracking-wide text-gray-800 text-center pr-8">KSL Real-Time Production Log</h1>
+      
+      <!-- Sign Out Button Icon -->
+      <button type="button" onclick="handleSignOut()" class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-700 hover:text-red-600 hover:scale-105 transition-all duration-150 focus:outline-none" title="Sign Out">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Switch Mode Tabs -->
+    <div class="grid grid-cols-2 bg-gray-200 p-1 border-x border-gray-200">
+      <button type="button" id="tabProduction" onclick="switchMode('production')" class="py-2.5 text-sm font-bold text-center rounded-md transition-all duration-150 bg-white text-blue-600 shadow-sm focus:outline-none">
+        📝 Production Data Entry
+      </button>
+      <button type="button" id="tabDowntime" onclick="switchMode('downtime')" class="py-2.5 text-sm font-bold text-center rounded-md transition-all duration-150 text-gray-600 hover:text-gray-800 focus:outline-none">
+        ⚠️ Downtime Logs Entry
+      </button>
+    </div>
+
+    <form id="prodForm" class="bg-white p-6 rounded-b-lg shadow-md space-y-5" onsubmit="handleFormSubmit(event)">
+      
+      <input type="hidden" id="entryType" name="entryType" value="production">
+
+      <!-- Common Info Header -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 uppercase">Date</label>
+          <input type="date" id="date" name="date" required class="w-full mt-1 px-3 py-2 border rounded bg-white font-medium text-gray-700 focus:ring-2 focus:ring-blue-400 focus:outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 uppercase">Shift</label>
+          <select id="shift" name="shift" required class="w-full mt-1 px-3 py-2 border rounded bg-white font-medium focus:ring-2 focus:ring-blue-400 focus:outline-none">
+            <option value="" disabled selected>-- Select Shift --</option>
+            <option value="Day">Day Shift</option>
+            <option value="Night">Night Shift</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Searchable Combobox Inputs -->
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 uppercase">Machine Name/Number</label>
+          <input type="text" id="machine" name="machine" list="machineOptions" placeholder="Type to search..." required class="w-full mt-1 px-3 py-2 border rounded font-medium bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none">
+          <datalist id="machineOptions"></datalist>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 uppercase">Operator Name</label>
+          <input type="text" id="operator" name="operator" list="operatorOptions" placeholder="Type to search..." required class="w-full mt-1 px-3 py-2 border rounded font-medium bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none">
+          <datalist id="operatorOptions"></datalist>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 uppercase">Product Selection</label>
+        <input type="text" id="productSelect" list="productOptions" oninput="syncProductFields()" placeholder="Type code or name to search..." required class="w-full mt-1 px-3 py-2 border rounded font-medium bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none">
+        <datalist id="productOptions"></datalist>
+        
+        <input type="hidden" id="productCode" name="productCode">
+        <input type="hidden" id="productName" name="productName">
+      </div>
+
+      <!-- SECTION A: PRODUCTION DATA MODULE -->
+      <div id="productionSection" class="space-y-4">
+        <hr class="border-gray-200 my-2">
+        <h3 class="text-sm font-bold text-gray-700 mb-2">📊 Production Output & Scrap</h3>
+        
+        <div class="grid grid-cols-3 gap-2">
+          <div class="col-span-2">
+            <label class="block text-xs text-gray-500">Output Weight</label>
+            <input type="number" step="0.01" id="outputWeight" name="outputWeight" class="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-400 focus:outline-none" placeholder="0.00" required>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500">Unit</label>
+            <select id="outputUnit" name="outputUnit" class="w-full px-3 py-2 border rounded bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none">
+              <option value="Kg">Kg</option>
+              <option value="Grams">Grams</option>
+              <option value="Pcs">Pcs</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+          <div>
+            <label class="block text-xs text-gray-500">Sweet Scrap (Kg)</label>
+            <input type="number" step="0.01" id="sweetScrap" name="sweetScrap" class="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-400 focus:outline-none" placeholder="0.00">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500">Material Scrap (Kg)</label>
+            <input type="number" step="0.01" id="materialScrap" name="materialScrap" class="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-400 focus:outline-none" placeholder="0.00">
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION B: DOWNTIME LOGS MODULE -->
+      <div id="downtimeSection" class="space-y-4 hidden">
+        <hr class="border-gray-200 my-2">
+        <h3 class="text-sm font-bold text-red-600 mb-2">⚠️ Downtime Logs</h3>
+        
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label class="block text-xs text-gray-500 font-semibold">Stoppage Reason</label>
+            <select id="stoppageReason" name="stoppageReason" class="w-full px-3 py-2 border rounded bg-white focus:ring-2 focus:ring-red-400 focus:outline-none">
+              <option value="">-- Select Reason --</option>
+              <option value="Daily Cleaning">Daily Cleaning</option>
+              <option value="Reel Change">Reel Change</option>
+              <option value="Wrapper Breakage">Wrapper Breakage</option>
+              <option value="Knife Cleaning">Knife Cleaning</option>
+              <option value="Broken Sweets Removal">Broken Sweets Removal</option>
+              <option value="No Sweets">No Sweets</option>
+              <option value="Breakdown">Breakdown</option>
+              <option value="Others">Others</option>
+            </select>
+          </div>
+          
+          <div class="bg-gray-50 p-3 rounded border border-gray-200 flex justify-between items-center mt-2">
+            <span class="text-xs font-bold text-gray-600 uppercase">Calculated Duration:</span>
+            <span id="durationDisplay" class="font-bold text-red-600 text-sm">00:00</span>
+            <input type="hidden" id="calculatedDurationText" name="calculatedDurationText" value="">
+          </div> 
+        </div>
+      
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <!-- Start Time Picker Card -->
+          <div class="p-3 bg-blue-50/70 border border-blue-200 rounded-lg shadow-sm">
+            <label class="block text-xs text-blue-800 font-bold uppercase tracking-wider">Stoppage Start Time (24h)</label>
+            <div class="flex space-x-1 mt-1.5">
+              <select id="startHour" onchange="updateDowntimeTimes()" class="w-1/2 p-2 border border-blue-300 rounded text-sm bg-white font-medium text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                <option value="">Hour</option>
+              </select>
+              <span class="self-center font-extrabold text-blue-400">:</span>
+              <select id="startMinute" onchange="updateDowntimeTimes()" class="w-1/2 p-2 border border-blue-300 rounded text-sm bg-white font-medium text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                <option value="">Min</option>
+              </select>
+            </div>
+            <input type="hidden" id="startTime" name="startTime" value="">
+          </div>
+
+          <!-- End Time Picker Card -->
+          <div class="p-3 bg-emerald-50/70 border border-emerald-200 rounded-lg shadow-sm">
+            <label class="block text-xs text-emerald-800 font-bold uppercase tracking-wider">Stoppage End Time (24h)</label>
+            <div class="flex space-x-1 mt-1.5">
+              <select id="endHour" onchange="updateDowntimeTimes()" class="w-1/2 p-2 border border-emerald-300 rounded text-sm bg-white font-medium text-gray-700 focus:outline-none focus:ring-1 focus:ring-emerald-400">
+                <option value="">Hour</option>
+              </select>
+              <span class="self-center font-extrabold text-emerald-400">:</span>
+              <select id="endMinute" onchange="updateDowntimeTimes()" class="w-1/2 p-2 border border-emerald-300 rounded text-sm bg-white font-medium text-gray-700 focus:outline-none focus:ring-1 focus:ring-emerald-400">
+                <option value="">Min</option>
+              </select>
+            </div>
+            <input type="hidden" id="endTime" name="endTime" value="">
+          </div>
+        </div>
+      </div>
+
+      <!-- UNIFIED FOOTER -->
+      <hr class="border-gray-200 my-2">
+
+      <div>
+        <label class="block text-xs font-semibold text-gray-600 uppercase">Comments / Notes</label>
+        <textarea id="comments" name="comments" rows="2" class="w-full mt-1 p-2 border rounded focus:ring-2 focus:ring-blue-400 focus:outline-none" placeholder="Add observations here..."></textarea>
+      </div>
+
+      <button type="submit" id="submitBtn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold p-3 rounded-lg shadow transition duration-200 uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-emerald-400">
+        Submit Production Entry
+      </button>
+
+    </form>
+  </div>
+
+  <!-- Unauthorized Block Screen -->
+  <div id="unauthorizedScreen" class="hidden flex flex-col items-center justify-center min-h-[60vh] max-w-md text-center p-6 bg-white rounded-lg shadow-lg mt-10 mx-4">
+    <div class="text-red-500 text-6xl mb-4">⚠️</div>
+    <h2 class="text-2xl font-bold text-gray-800 mb-2">Access Denied</h2>
+    <p class="text-gray-600 mb-4">You do not have permission to access the KSL Real-Time Production Log.</p>
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded mb-6 text-sm">
+      Attempted: <span id="unauthorizedEmail" class="font-bold">Unknown</span>
+    </div>
+    <button type="button" onclick="returnToLogin()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold p-2.5 rounded transition duration-150 uppercase tracking-wide">
+      Return to Log In
+    </button>
+  </div>
+
+  <!-- Dynamic Global Loading Spinner Overlay -->
+  <div id="loadingOverlay" class="fixed inset-0 bg-gray-950/50 backdrop-blur-sm flex items-center justify-center z-50 transition-opacity duration-300">
+    <div class="bg-white p-6 rounded-lg shadow-xl flex flex-col items-center space-y-4 max-w-xs text-center mx-4">
+      <div class="animate-spin rounded-full h-10 w-10 border-4 border-blue-600 border-t-transparent"></div>
+      <p class="text-gray-700 font-semibold" id="overlayMessage">Checking permissions...</p>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = "https://script.google.com/macros/s/AKfycbzZ-KR1EhoIeL5f8ZB3UVKDD3SW_ItIh6ArHzC-ktOk21k_LAt-1Mum8z8QgoUJqEH5/exec";
+
+    let masterProducts = [];
+
+    document.addEventListener('DOMContentLoaded', checkStoredCredentials);
+
+    // Initial check on load
+    function checkStoredCredentials() {
+      const email = localStorage.getItem("ksl_email");
+      const passcode = localStorage.getItem("ksl_passcode");
+
+      if (email && passcode) {
+        verifyAndFetchData(email, passcode);
+      } else {
+        hideOverlay();
+        showLoginScreen();
+      }
+    }
+
+    // Handles the custom landing page Form Submission
+    function handleLoginSubmit(e) {
+      e.preventDefault();
+      const email = document.getElementById('loginEmail').value.trim();
+      const passcode = document.getElementById('loginPasscode').value.trim();
+
+      if (email && passcode) {
+        verifyAndFetchData(email, passcode);
+      }
+    }
+
+    // Verifies credentials with API and retrieves data
+    async function verifyAndFetchData(email, passcode) {
+      showOverlay("Verifying credentials...");
+      
+      try {
+        const response = await fetch(`${API_URL}?email=${encodeURIComponent(email)}&passcode=${encodeURIComponent(passcode)}`);
+        if (!response.ok) throw new Error(`HTTP Error Status: ${response.status}`);
+        
+        const data = await response.json();
+        
+        if (data.authorized === false) {
+          localStorage.removeItem("ksl_email");
+          localStorage.removeItem("ksl_passcode");
+          showUnauthorizedScreen(email || 'Invalid Credentials');
+          return;
+        }
+
+        // Successfully authorized
+        localStorage.setItem("ksl_email", email);
+        localStorage.setItem("ksl_passcode", passcode);
+        
+        initializeUi(data);
+        
+        document.getElementById('loginScreen').classList.add('hidden');
+        document.getElementById('unauthorizedScreen').classList.add('hidden');
+        document.getElementById('mainApp').classList.remove('hidden');
+      } catch (err) {
+        console.error("Initialization error: ", err);
+        alert(`❌ Failed to retrieve configuration data. Ensure your API_URL is correct.\nDetails: ${err.message}`);
+        showLoginScreen();
+      } finally {
+        hideOverlay();
+      }
+    }
+
+    // Handles sign out sequence with confirmation window
+    function handleSignOut() {
+      const confirmSignOut = confirm("Are you sure you want to sign out?");
+      if (confirmSignOut) {
+        localStorage.removeItem("ksl_email");
+        localStorage.removeItem("ksl_passcode");
+        
+        // Reset login form fields
+        document.getElementById('loginEmail').value = '';
+        document.getElementById('loginPasscode').value = '';
+        
+        // Hide logs page, show landing page
+        document.getElementById('mainApp').classList.add('hidden');
+        document.getElementById('unauthorizedScreen').classList.add('hidden');
+        showLoginScreen();
+      }
+    }
+
+    // Handles sending production/downtime submission to API
+    async function handleFormSubmit(e) {
+      e.preventDefault();
+      
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.disabled = true;
+      submitBtn.innerText = "Processing Submission...";
+      submitBtn.classList.replace('bg-emerald-600', 'bg-gray-400');
+
+      syncProductFields();
+
+      const formElement = document.getElementById('prodForm');
+      const formDataObj = Object.fromEntries(new FormData(formElement));
+      
+      // Inject authorization credentials into POST payload
+      formDataObj.authEmail = localStorage.getItem("ksl_email");
+      formDataObj.authPasscode = localStorage.getItem("ksl_passcode");
+
+      showOverlay("Submitting log registry entry...");
+
+      try {
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: JSON.stringify(formDataObj)
+        });
+
+        if (!response.ok) throw new Error(`Network response error status ${response.status}`);
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          alert('✅ Submission Successful!');
+          resetFormPreservingMeta();
+        } else {
+          throw new Error(result.error || 'Unknown script compilation error.');
+        }
+
+      } catch (err) {
+        console.error("Submission failed: ", err);
+        alert('❌ Submission error: ' + err.message);
+      } finally {
+        resetSubmitButton();
+        hideOverlay();
+      }
+    }
+
+    function showLoginScreen() {
+      document.getElementById('loginScreen').classList.remove('hidden');
+      document.getElementById('mainApp').classList.add('hidden');
+      document.getElementById('unauthorizedScreen').classList.add('hidden');
+    }
+
+    function showUnauthorizedScreen(email) {
+      document.getElementById('unauthorizedEmail').innerText = email;
+      document.getElementById('unauthorizedScreen').classList.remove('hidden');
+      document.getElementById('mainApp').classList.add('hidden');
+      document.getElementById('loginScreen').classList.add('hidden');
+    }
+
+    function returnToLogin() {
+      document.getElementById('unauthorizedScreen').classList.add('hidden');
+      showLoginScreen();
+    }
+
+    function initializeUi(data) {
+      document.getElementById('date').value = data.date;
+      
+      const mDataList = document.getElementById('machineOptions');
+      mDataList.innerHTML = '';
+      data.machines.forEach(m => {
+        let opt = document.createElement('option');
+        opt.value = m;
+        mDataList.appendChild(opt);
+      });
+      
+      const opDataList = document.getElementById('operatorOptions');
+      opDataList.innerHTML = '';
+      data.operators.forEach(op => {
+        let opt = document.createElement('option');
+        opt.value = op;
+        opDataList.appendChild(opt);
+      });
+
+      masterProducts = data.products;
+      const pDataList = document.getElementById('productOptions');
+      pDataList.innerHTML = '';
+      data.products.forEach(p => {
+        let opt = document.createElement('option');
+        opt.value = `${p.code} - ${p.name}`;
+        pDataList.appendChild(opt);
+      });
+
+      // Populate hours
+      const startHourSel = document.getElementById('startHour');
+      const endHourSel = document.getElementById('endHour');
+      startHourSel.innerHTML = '<option value="">Hour</option>';
+      endHourSel.innerHTML = '<option value="">Hour</option>';
+      for (let i = 0; i < 24; i++) {
+        const hrStr = String(i).padStart(2, '0');
+        startHourSel.add(new Option(hrStr, hrStr));
+        endHourSel.add(new Option(hrStr, hrStr));
+      }
+
+      // Populate minutes
+      const startMinSel = document.getElementById('startMinute');
+      const endMinSel = document.getElementById('endMinute');
+      startMinSel.innerHTML = '<option value="">Min</option>';
+      endMinSel.innerHTML = '<option value="">Min</option>';
+      for (let i = 0; i < 60; i++) {
+        const minStr = String(i).padStart(2, '0');
+        startMinSel.add(new Option(minStr, minStr));
+        endMinSel.add(new Option(minStr, minStr));
+      }
+    }
+
+    function updateDowntimeTimes() {
+      const startH = document.getElementById('startHour').value;
+      const startM = document.getElementById('startMinute').value;
+      const endH = document.getElementById('endHour').value;
+      const endM = document.getElementById('endMinute').value;
+
+      if (startH && startM) {
+        document.getElementById('startTime').value = `${startH}:${startM}`;
+      } else {
+        document.getElementById('startTime').value = "";
+      }
+
+      if (endH && endM) {
+        document.getElementById('endTime').value = `${endH}:${endM}`;
+      } else {
+        document.getElementById('endTime').value = "";
+      }
+
+      calculateDuration();
+    }
+
+    function calculateDuration() {
+      const startHVal = document.getElementById('startHour').value;
+      const startMVal = document.getElementById('startMinute').value;
+      const endHVal = document.getElementById('endHour').value;
+      const endMVal = document.getElementById('endMinute').value;
+
+      const displaySpan = document.getElementById('durationDisplay');
+      const hiddenInput = document.getElementById('calculatedDurationText');
+
+      if (!startHVal || !startMVal || !endHVal || !endMVal) {
+        displaySpan.innerText = "00:00";
+        hiddenInput.value = "00:00";
+        return;
+      }
+
+      const startH = parseInt(startHVal, 10);
+      const startM = parseInt(startMVal, 10);
+      const endH = parseInt(endHVal, 10);
+      const endM = parseInt(endMVal, 10);
+
+      let startTotalMinutes = (startH * 60) + startM;
+      let endTotalMinutes = (endH * 60) + endM;
+
+      if (endTotalMinutes < startTotalMinutes) {
+        endTotalMinutes += 24 * 60;
+      }
+
+      const diffMinutes = endTotalMinutes - startTotalMinutes;
+      const hours = Math.floor(diffMinutes / 60);
+      const remainingMinutes = diffMinutes % 60;
+
+      const formattedHours = String(hours).padStart(2, '0');
+      const formattedMinutes = String(remainingMinutes).padStart(2, '0');
+      const resultString = `${formattedHours}:${formattedMinutes}`;
+
+      displaySpan.innerText = resultString;
+      hiddenInput.value = resultString;
+    }
+
+    function switchMode(mode) {
+      document.getElementById('entryType').value = mode;
+      
+      const prodTab = document.getElementById('tabProduction');
+      const downTab = document.getElementById('tabDowntime');
+      const prodSec = document.getElementById('productionSection');
+      const downSec = document.getElementById('downtimeSection');
+      const sBtn = document.getElementById('submitBtn');
+      
+      const pWeight = document.getElementById('outputWeight');
+      const sReason = document.getElementById('stoppageReason');
+      const sStart = document.getElementById('startTime');
+      const sEnd = document.getElementById('endTime');
+
+      if (mode === 'production') {
+        prodTab.className = "py-2.5 text-sm font-bold text-center rounded-md transition-all duration-150 bg-white text-blue-600 shadow-sm focus:outline-none";
+        downTab.className = "py-2.5 text-sm font-bold text-center rounded-md transition-all duration-150 text-gray-600 hover:text-gray-800 focus:outline-none";
+        prodSec.classList.remove('hidden');
+        downSec.classList.add('hidden');
+        sBtn.innerText = "Submit Production Entry";
+        
+        pWeight.required = true;
+        sReason.required = false;
+        sStart.required = false;
+        sEnd.required = false;
+      } else {
+        downTab.className = "py-2.5 text-sm font-bold text-center rounded-md transition-all duration-150 bg-white text-blue-600 shadow-sm focus:outline-none";
+        prodTab.className = "py-2.5 text-sm font-bold text-center rounded-md transition-all duration-150 text-gray-600 hover:text-gray-800 focus:outline-none";
+        downSec.classList.remove('hidden');
+        prodSec.classList.add('hidden');
+        sBtn.innerText = "Submit Downtime Log";
+        
+        pWeight.required = false;
+        sReason.required = true;
+        sStart.required = true;
+        sEnd.required = true;
+      }
+    }
+
+    function syncProductFields() {
+      const displayVal = document.getElementById('productSelect').value;
+      const matchingProduct = masterProducts.find(p => `${p.code} - ${p.name}` === displayVal);
+      
+      if(matchingProduct) {
+        document.getElementById('productCode').value = matchingProduct.code;
+        document.getElementById('productName').value = matchingProduct.name;
+      } else {
+        document.getElementById('productCode').value = displayVal;
+        document.getElementById('productName').value = displayVal;
+      }
+    }
+
+    function resetSubmitButton() {
+      const submitBtn = document.getElementById('submitBtn');
+      const entryType = document.getElementById('entryType').value;
+      submitBtn.disabled = false;
+      submitBtn.innerText = entryType === 'production' ? "Submit Production Entry" : "Submit Downtime Log";
+      submitBtn.classList.replace('bg-gray-400', 'bg-emerald-600');
+    }
+
+    function resetFormPreservingMeta() {
+      document.getElementById('machine').value = '';
+      document.getElementById('operator').value = '';
+      document.getElementById('productSelect').value = '';
+      document.getElementById('productCode').value = '';
+      document.getElementById('productName').value = '';
+      
+      document.getElementById('outputWeight').value = '';
+      document.getElementById('outputUnit').value = 'Kg';
+      document.getElementById('sweetScrap').value = '';
+      document.getElementById('materialScrap').value = '';
+      
+      document.getElementById('startHour').value = '';
+      document.getElementById('startMinute').value = '';
+      document.getElementById('endHour').value = '';
+      document.getElementById('endMinute').value = '';
+      
+      document.getElementById('startTime').value = '';
+      document.getElementById('endTime').value = '';
+      document.getElementById('stoppageReason').value = '';
+      document.getElementById('durationDisplay').innerText = '00:00';
+      document.getElementById('calculatedDurationText').value = '00:00';
+      
+      document.getElementById('comments').value = '';
+    }
+
+    function showOverlay(message) {
+      document.getElementById('overlayMessage').innerText = message;
+      document.getElementById('loadingOverlay').classList.remove('hidden');
+    }
+
+    function hideOverlay() {
+      document.getElementById('loadingOverlay').classList.add('hidden');
+    }
+  </script>
+</body>
+</html>
