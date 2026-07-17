@@ -39,7 +39,7 @@
     <form id="loginForm" onsubmit="handleLoginSubmit(event)" class="space-y-4">
       <div>
         <label class="block text-xs font-semibold text-gray-600 uppercase">Email Address</label>
-        <input type="email" id="loginEmail" required class="w-full mt-1 px-3 py-2 border rounded bg-white font-medium text-gray-700 focus:ring-2 focus:ring-blue-400 focus:outline-none" placeholder="shedrack@kenyasweets.com">
+        <input type="email" id="loginEmail" required class="w-full mt-1 px-3 py-2 border rounded bg-white font-medium text-gray-700 focus:ring-2 focus:ring-blue-400 focus:outline-none" placeholder="xxx@kenyasweets.com">
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 uppercase">Access Passcode</label>
@@ -250,7 +250,7 @@
   </div>
 
   <script>
-    const API_URL = "https://script.google.com/macros/s/AKfycbxYDdRMkmP1OcFLkk_t50Y5aEZJcH4QEnfkkBju65PJc9Ej1igJwjL-xa-kFFBHXkV5/exec";
+    const API_URL = "https://script.google.com/macros/s/AKfycby9JRZo1qm85IMX6jBNVNZuAvd3rUbUhlw4ebKdvX9sEXNFuIFEJ-QHTp-hGlityyFh/exec";
 
     // Global Dropdown Master Storage for Validation Checks
     let masterProducts = [];
@@ -347,14 +347,14 @@
 
     function validateMachine(inputElement) {
       if (inputElement.value && !masterMachines.includes(inputElement.value)) {
-        alert("⚠️ Selection Error: Machine is not within the provided schedule dropdown options.");
+        alert("⚠️ Error: Machine entered is not within the provided list of KSL Machines.");
         inputElement.value = ''; // Clear placeholder entry
       }
     }
 
     function validateOperator(inputElement) {
       if (inputElement.value && !masterOperators.includes(inputElement.value)) {
-        alert("⚠️ Selection Error: Operator Name is not within the authorized schedule dropdown options.");
+        alert("⚠️ Error: Operator Name does not exist in our Employee Database.");
         inputElement.value = ''; // Clear placeholder entry
       }
     }
@@ -363,7 +363,7 @@
       const currentVal = inputElement.value;
       const matched = masterProducts.some(p => `${p.code} - ${p.name}` === currentVal);
       if (currentVal && !matched) {
-        alert("⚠️ Selection Error: The typed product name/code configuration does not exist in master settings.");
+        alert("⚠️ Error: Please select the correct Product name/code.");
         inputElement.value = ''; // Clear placeholder entry
         document.getElementById('productCode').value = '';
         document.getElementById('productName').value = '';
