@@ -39,7 +39,7 @@
     <form id="loginForm" onsubmit="handleLoginSubmit(event)" class="space-y-4">
       <div>
         <label class="block text-xs font-semibold text-gray-600 uppercase">Email Address</label>
-        <input type="email" id="loginEmail" required class="w-full mt-1 px-3 py-2 border rounded bg-white font-medium text-gray-700 focus:ring-2 focus:ring-blue-400 focus:outline-none" placeholder="xxx@kenyasweets.com">
+        <input type="email" id="loginEmail" required class="w-full mt-1 px-3 py-2 border rounded bg-white font-medium text-gray-700 focus:ring-2 focus:ring-blue-400 focus:outline-none" placeholder="shedrack@kenyasweets.com">
       </div>
       <div>
         <label class="block text-xs font-semibold text-gray-600 uppercase">Access Passcode</label>
@@ -85,7 +85,7 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label class="block text-xs font-semibold text-gray-600 uppercase">Date</label>
-          <input type="date" id="date" name="date" required class="w-full mt-1 px-3 py-2 border rounded bg-white font-medium text-gray-700 focus:ring-2 focus:ring-blue-400 focus:outline-none">
+          <input type="date" id="date" name="date" required onchange="validateDate(this)" class="w-full mt-1 px-3 py-2 border rounded bg-white font-medium text-gray-700 focus:ring-2 focus:ring-blue-400 focus:outline-none">
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 uppercase">Shift</label>
@@ -101,19 +101,19 @@
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <label class="block text-xs font-semibold text-gray-600 uppercase">Machine Name/Number</label>
-          <input type="text" id="machine" name="machine" list="machineOptions" placeholder="Type to search..." required class="w-full mt-1 px-3 py-2 border rounded font-medium bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none">
+          <input type="text" id="machine" name="machine" list="machineOptions" onchange="validateMachine(this)" placeholder="Type to search..." required class="w-full mt-1 px-3 py-2 border rounded font-medium bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none">
           <datalist id="machineOptions"></datalist>
         </div>
         <div>
           <label class="block text-xs font-semibold text-gray-600 uppercase">Operator Name</label>
-          <input type="text" id="operator" name="operator" list="operatorOptions" placeholder="Type to search..." required class="w-full mt-1 px-3 py-2 border rounded font-medium bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none">
+          <input type="text" id="operator" name="operator" list="operatorOptions" onchange="validateOperator(this)" placeholder="Type to search..." required class="w-full mt-1 px-3 py-2 border rounded font-medium bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none">
           <datalist id="operatorOptions"></datalist>
         </div>
       </div>
 
       <div>
         <label class="block text-xs font-semibold text-gray-600 uppercase">Product Selection</label>
-        <input type="text" id="productSelect" list="productOptions" oninput="syncProductFields()" placeholder="Type code or name to search..." required class="w-full mt-1 px-3 py-2 border rounded font-medium bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none">
+        <input type="text" id="productSelect" list="productOptions" onchange="validateProductSelection(this)" oninput="syncProductFields()" placeholder="Type code or name to search..." required class="w-full mt-1 px-3 py-2 border rounded font-medium bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none">
         <datalist id="productOptions"></datalist>
         
         <input type="hidden" id="productCode" name="productCode">
@@ -252,7 +252,11 @@
   <script>
     const API_URL = "https://script.google.com/macros/s/AKfycbxYDdRMkmP1OcFLkk_t50Y5aEZJcH4QEnfkkBju65PJc9Ej1igJwjL-xa-kFFBHXkV5/exec";
 
+    // Global Dropdown Master Storage for Validation Checks
     let masterProducts = [];
+    let masterMachines = [];
+    let masterOperators = [];
+    let serverTodayDateString = "";
 
     document.addEventListener('DOMContentLoaded', checkStoredCredentials);
 
@@ -333,6 +337,39 @@
       }
     }
 
+    // Validation Hooks for Dropdowns and Date Values
+    function validateDate(inputElement) {
+      if (inputElement.value > serverTodayDateString) {
+        alert("⚠️ Entry Error: Date cannot be greater than today.");
+        inputElement.value = serverTodayDateString; // Reset to safe placeholder today
+      }
+    }
+
+    function validateMachine(inputElement) {
+      if (inputElement.value && !masterMachines.includes(inputElement.value)) {
+        alert("⚠️ Selection Error: Machine is not within the provided schedule dropdown options.");
+        inputElement.value = ''; // Clear placeholder entry
+      }
+    }
+
+    function validateOperator(inputElement) {
+      if (inputElement.value && !masterOperators.includes(inputElement.value)) {
+        alert("⚠️ Selection Error: Operator Name is not within the authorized schedule dropdown options.");
+        inputElement.value = ''; // Clear placeholder entry
+      }
+    }
+
+    function validateProductSelection(inputElement) {
+      const currentVal = inputElement.value;
+      const matched = masterProducts.some(p => `${p.code} - ${p.name}` === currentVal);
+      if (currentVal && !matched) {
+        alert("⚠️ Selection Error: The typed product name/code configuration does not exist in master settings.");
+        inputElement.value = ''; // Clear placeholder entry
+        document.getElementById('productCode').value = '';
+        document.getElementById('productName').value = '';
+      }
+    }
+
     // Handles sending production/downtime submission to API
     async function handleFormSubmit(e) {
       e.preventDefault();
@@ -401,8 +438,16 @@
     }
 
     function initializeUi(data) {
-      document.getElementById('date').value = data.date;
+      serverTodayDateString = data.date;
+      const dateInput = document.getElementById('date');
+      dateInput.value = data.date;
+      dateInput.max = data.date; // Native date picker restriction for calendar selection UI
       
+      // Cache values arrays to memory context
+      masterMachines = data.machines;
+      masterOperators = data.operators;
+      masterProducts = data.products;
+
       const mDataList = document.getElementById('machineOptions');
       mDataList.innerHTML = '';
       data.machines.forEach(m => {
@@ -419,7 +464,6 @@
         opDataList.appendChild(opt);
       });
 
-      masterProducts = data.products;
       const pDataList = document.getElementById('productOptions');
       pDataList.innerHTML = '';
       data.products.forEach(p => {
