@@ -356,7 +356,7 @@
   </div>
 
   <script>
-    const API_URL = "https://script.google.com/macros/s/AKfycbyeo1Wjxs2p2fHkmqbk0G_8OBJWA8-yJYJXZfTtWRsEYsmG2kcShXVATY4US0JDNT8/exec";
+    const API_URL = "https://script.google.com/macros/s/AKfycbxJ5MMgapUCMUaXnMtl6f0HNHtmAJDeJfgKMBT9nUe8jOyOegSQxIYqxoaq3_ezxO7d/exec";
 
     // Global Dropdown Master Storage for Validation Checks
     let masterProducts = [];
@@ -655,7 +655,7 @@
       const email = localStorage.getItem("ksl_email");
       const passcode = localStorage.getItem("ksl_passcode");
 
-      const queryUrl = `${API_URL}?email=${encodeURIComponent(email)}&passcode=${encodeURIComponent(passcode)}&action=fetchLog&logType=${encodeURIComponent(logType)}&date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}`;
+      const query = `${API_URL}?email=${encodeURIComponent(email)}&passcode=${encodeURIComponent(passcode)}&action=fetchLog&logType=${encodeURIComponent(logType)}&date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}`;
 
       try {
         const response = await fetch(queryUrl);
