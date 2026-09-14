@@ -655,7 +655,7 @@
       const email = localStorage.getItem("ksl_email");
       const passcode = localStorage.getItem("ksl_passcode");
 
-      const query = `${API_URL}?email=${encodeURIComponent(email)}&passcode=${encodeURIComponent(passcode)}&action=fetchLog&logType=${encodeURIComponent(logType)}&date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}`;
+      const queryUrl = `${API_URL}?email=${encodeURIComponent(email)}&passcode=${encodeURIComponent(passcode)}&action=fetchLog&logType=${encodeURIComponent(logType)}&date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}`;
 
       try {
         const response = await fetch(queryUrl);
