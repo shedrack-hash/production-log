@@ -166,6 +166,25 @@
         overflow: visible !important;
       }
     }
+
+    /* Visual cue when the Date / Shift fields are locked */
+    #date.date-locked,
+    #shift.shift-locked {
+      background-color: #fef3c7 !important; /* amber-100 */
+      border-color: #f59e0b !important;
+      cursor: not-allowed;
+      color: #92400e;
+    }
+    #dateLockHint {
+      display: none;
+      font-size: 0.65rem;
+      color: #b45309;
+      margin-top: 2px;
+      font-weight: 600;
+    }
+    #dateLockHint.visible {
+      display: block;
+    }
   </style>
 </head>	
 <body class="bg-gray-100 font-sans min-h-screen w-full flex flex-col justify-start">
@@ -298,6 +317,7 @@
             <div>
               <label class="block text-xs font-semibold text-gray-600 uppercase">Date</label>
               <input type="date" id="date" name="date" required onchange="validateDate(this)" class="w-full mt-1 px-3 py-2 border rounded bg-white font-medium text-gray-700 focus:ring-2 focus:ring-blue-400 focus:outline-none">
+              <p id="dateLockHint" class="date-lock-hint">Date locked for night-shift period (19:00–08:00)</p>
             </div>
             <div>
               <label class="block text-xs font-semibold text-gray-600 uppercase">Shift</label>
@@ -510,7 +530,7 @@
   <div id="errorModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] hidden">
     <div class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 p-6 text-center border-2 border-red-500">
       <div class="text-red-600 text-5xl mb-3">⚠️</div>
-      <h3 class="text-lg font-bold text-red-700 mb-3 uppercase tracking-wide">Duplicate / Error</h3>
+      <h3 id="errorModalTitle" class="text-lg font-bold text-red-700 mb-3 uppercase tracking-wide">Duplicate Error</h3>
       <p id="errorModalMessage" class="text-red-600 font-medium text-sm leading-relaxed mb-6 whitespace-pre-line"></p>
       <button type="button" onclick="hideErrorModal()" 
               class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg shadow transition duration-200 uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-red-400">
@@ -521,7 +541,7 @@
   <!-- ===================================================== -->
 
   <script>
-    const API_URL = "https://script.google.com/macros/s/AKfycbyZluVxjI5HHWFgI6oT1gE4RBvTl2FPwH_7FyNppLeAuBWnRUqXHRgKPPoYpyEj8u5z/exec";
+    const API_URL = "https://script.google.com/macros/s/AKfycbx1pAFyamOiVz19cSPFqLjAKUKqZWZf6gXwny-t5CmlcK3-RUYEH_GC1BWLRHf7MvTE/exec";
 
     // Global Dropdown Master Storage for Validation Checks
     let masterProducts = [];
@@ -529,6 +549,84 @@
     let masterOperators = [];
     let serverTodayDateString = "";
     let cachedFetchedLogs = [];
+
+    // Date-lock state (recomputed every minute)
+    let isDateCurrentlyLocked = false;
+    let currentLockedDate = null; // YYYY-MM-DD
+
+    // ===== SESSION INACTIVITY TIMEOUT (6 hours) =====
+    const SESSION_TIMEOUT_MS = 6 * 60 * 60 * 1000; // 6 hours
+    const LAST_ACTIVITY_KEY = 'ksl_last_activity';
+
+    function updateLastActivity() {
+      try {
+        localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+      } catch (e) { /* ignore storage errors */ }
+    }
+
+    function getLastActivity() {
+      try {
+        const val = localStorage.getItem(LAST_ACTIVITY_KEY);
+        return val ? parseInt(val, 10) : 0;
+      } catch (e) {
+        return 0;
+      }
+    }
+
+    /**
+     * If the user has been inactive for more than 6 hours, clear credentials
+     * and return them to the login screen (no confirmation dialog).
+     * Returns true if the session was timed out.
+     */
+    function checkSessionTimeout() {
+      const last = getLastActivity();
+      if (!last) return false;
+
+      const elapsed = Date.now() - last;
+      if (elapsed >= SESSION_TIMEOUT_MS) {
+        forceSessionTimeout();
+        return true;
+      }
+      return false;
+    }
+
+    function forceSessionTimeout() {
+      localStorage.removeItem('ksl_email');
+      localStorage.removeItem('ksl_passcode');
+      localStorage.removeItem('ksl_ui_data');
+      localStorage.removeItem(LAST_ACTIVITY_KEY);
+
+      // Reset any open UI state
+      const loginEmail = document.getElementById('loginEmail');
+      const loginPasscode = document.getElementById('loginPasscode');
+      if (loginEmail) loginEmail.value = '';
+      if (loginPasscode) loginPasscode.value = '';
+
+      document.getElementById('mainApp')?.classList.add('hidden');
+      document.getElementById('unauthorizedScreen')?.classList.add('hidden');
+      showLoginScreen();
+
+      // Brief notice so the user understands why they were logged out
+      showErrorModal(
+        'Your session has expired due to 6 hours of inactivity.\n\nPlease sign in again to continue.',
+        'SESSION EXPIRED'
+      );
+    }
+
+    // Track activity on common user interactions
+    ['click', 'keydown', 'touchstart', 'mousemove', 'scroll'].forEach(evt => {
+      document.addEventListener(evt, updateLastActivity, { passive: true, capture: true });
+    });
+
+    // Periodically check for timeout (every 60 seconds)
+    setInterval(() => {
+      // Only check while the main app is visible (user is logged in)
+      const mainApp = document.getElementById('mainApp');
+      if (mainApp && !mainApp.classList.contains('hidden')) {
+        checkSessionTimeout();
+      }
+    }, 60 * 1000);
+    // ==================================================
 
     document.addEventListener('DOMContentLoaded', checkStoredCredentials);
 
@@ -586,6 +684,103 @@
       return document.getElementById('viewLogDate').value || serverTodayDateString;
     }
 
+    /**
+     * Client-side computation of the 19:00–08:00 date-lock window.
+     * Matches the server-side logic in computeDateLockInfo().
+     *
+     * From 19:00 on day D until 08:00 on day D+1 the Date field is locked to day D.
+     */
+    function computeClientDateLockInfo() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth();
+      const d = now.getDate();
+      const minutesSinceMidnight = now.getHours() * 60 + now.getMinutes();
+
+      const LOCK_START_MIN = 19 * 60; // 19:00
+      const LOCK_END_MIN   =  8 * 60; // 08:00
+
+      if (minutesSinceMidnight >= LOCK_START_MIN) {
+        // After 19:00 today → locked to today
+        const locked = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        return { isDateLocked: true, lockedDate: locked };
+      } else if (minutesSinceMidnight < LOCK_END_MIN) {
+        // Before 08:00 today → locked to yesterday
+        const yesterday = new Date(y, m, d - 1);
+        const locked = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+        return { isDateLocked: true, lockedDate: locked };
+      }
+      // 08:00 – 18:59 → unlocked
+      return { isDateLocked: false, lockedDate: null };
+    }
+
+    /**
+     * Applies (or removes) the date + shift lock on the entry form.
+     * During the 19:00–08:00 window:
+     *   - Date is locked to the shift-start date
+     *   - Shift is locked to "Night"
+     * Called on init and every 60 seconds thereafter.
+     */
+    function applyDateLock() {
+      const info = computeClientDateLockInfo();
+      isDateCurrentlyLocked = info.isDateLocked;
+      currentLockedDate = info.lockedDate;
+
+      const dateInput = document.getElementById('date');
+      const shiftSelect = document.getElementById('shift');
+      const hint = document.getElementById('dateLockHint');
+      if (!dateInput) return;
+
+      if (isDateCurrentlyLocked && currentLockedDate) {
+        // --- Date lock ---
+        dateInput.value = currentLockedDate;
+        dateInput.readOnly = true;
+        dateInput.classList.add('date-locked');
+        // Prevent the native date picker from opening
+        dateInput.addEventListener('mousedown', preventDatePicker, true);
+        dateInput.addEventListener('keydown', preventDatePicker, true);
+
+        // --- Shift lock to Night ---
+        if (shiftSelect) {
+          shiftSelect.value = 'Night';
+          shiftSelect.disabled = true;
+          shiftSelect.classList.add('shift-locked');
+        }
+
+        if (hint) {
+          hint.textContent = `Note: Date locked to ${formatDateDisplay(currentLockedDate)} & Shift locked to Night Shift`;
+          hint.classList.add('visible');
+        }
+      } else {
+        // --- Unlock Date ---
+        dateInput.readOnly = false;
+        dateInput.classList.remove('date-locked');
+        dateInput.removeEventListener('mousedown', preventDatePicker, true);
+        dateInput.removeEventListener('keydown', preventDatePicker, true);
+        if (serverTodayDateString) {
+          dateInput.max = serverTodayDateString;
+        }
+
+        // --- Unlock Shift ---
+        if (shiftSelect) {
+          shiftSelect.disabled = false;
+          shiftSelect.classList.remove('shift-locked');
+        }
+
+        if (hint) hint.classList.remove('visible');
+      }
+    }
+
+    function preventDatePicker(e) {
+      if (isDateCurrentlyLocked) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+
+    // Re-evaluate the lock every 60 seconds so it opens/closes automatically at 08:00 / 19:00
+    setInterval(applyDateLock, 60 * 1000);
+
     function togglePasswordVisibility() {
       const passwordInput = document.getElementById('loginPasscode');
       const eyeIcon = document.getElementById('eyeIcon');
@@ -605,6 +800,12 @@
     }
 
     function checkStoredCredentials() {
+      // Expire any stale session before restoring UI
+      if (checkSessionTimeout()) {
+        hideOverlay();
+        return; // already signed out and shown login + message
+      }
+
       const email = localStorage.getItem("ksl_email");
       const passcode = localStorage.getItem("ksl_passcode");
       const cachedUi = localStorage.getItem("ksl_ui_data");
@@ -618,6 +819,7 @@
           document.getElementById('unauthorizedScreen').classList.add('hidden');
           document.getElementById('mainApp').classList.remove('hidden');
           hideOverlay();
+          updateLastActivity(); // mark this restore as activity
 
           // Silent background refresh of master data (no overlay)
           silentRefreshMasterData(email, passcode);
@@ -658,6 +860,7 @@
           localStorage.removeItem("ksl_email");
           localStorage.removeItem("ksl_passcode");
           localStorage.removeItem("ksl_ui_data");
+          localStorage.removeItem(LAST_ACTIVITY_KEY);
           showUnauthorizedScreen(email || 'Invalid Credentials');
           return;
         }
@@ -665,6 +868,7 @@
         localStorage.setItem("ksl_email", email);
         localStorage.setItem("ksl_passcode", passcode);
         localStorage.setItem("ksl_ui_data", JSON.stringify(data));
+        updateLastActivity(); // start the 6-hour inactivity clock
         
         initializeUi(data);
         
@@ -704,6 +908,7 @@
         localStorage.removeItem("ksl_email");
         localStorage.removeItem("ksl_passcode");
         localStorage.removeItem("ksl_ui_data");
+        localStorage.removeItem(LAST_ACTIVITY_KEY);
         
         document.getElementById('loginEmail').value = '';
         document.getElementById('loginPasscode').value = '';
@@ -715,6 +920,15 @@
     }
 
     function validateDate(inputElement) {
+      // When the date is locked we force it back to the locked value
+      if (isDateCurrentlyLocked && currentLockedDate) {
+        if (inputElement.value !== currentLockedDate) {
+          showErrorModal(`⚠️ Date is locked to ${formatDateDisplay(currentLockedDate)} between 19:00 and 08:00.\n\nPlease confirm the correct date for the current shift.`);
+          inputElement.value = currentLockedDate;
+        }
+        return;
+      }
+
       if (inputElement.value > serverTodayDateString) {
         showErrorModal("⚠️ Entry Error: Date cannot be greater than today.");
         inputElement.value = serverTodayDateString;
@@ -812,9 +1026,57 @@
       return false;
     }
 
+    /**
+     * Client-side validation of downtime duration against shift limits.
+     * Day  = 11 hours (660 min)
+     * Night = 13 hours (780 min)
+     * Returns an error message string if invalid, otherwise null.
+     */
+    function validateDowntimeDurationClientSide(formDataObj) {
+      if (formDataObj.entryType !== 'downtime') return null;
+
+      const durationText = formDataObj.calculatedDurationText || '00:00';
+      const parts = durationText.split(':');
+      if (parts.length !== 2) {
+        return 'Error: Invalid stoppage duration. Please confirm the Stoppage Start Time and Stoppage End Time.';
+      }
+      const h = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      if (isNaN(h) || isNaN(m) || h < 0 || m < 0 || m > 59) {
+        return 'Error: Invalid stoppage duration. Please confirm the Stoppage Start Time and Stoppage End Time.';
+      }
+      const totalMinutes = h * 60 + m;
+
+      const isNight = String(formDataObj.shift || '').toLowerCase().includes('night');
+      const maxMinutes = isNight ? 13 * 60 : 11 * 60;
+      const maxHours = isNight ? 13 : 11;
+
+      if (totalMinutes > maxMinutes) {
+        return `Error: Stoppage duration (${durationText}) exceeds the maximum hours for ${formDataObj.shift} shift (${maxHours} hours).\n\nPlease confirm the Stoppage Start Time and Stoppage End Time.`;
+      }
+      return null;
+    }
+
     // ========== CENTERED ERROR MODAL FUNCTIONS ==========
-    function showErrorModal(message) {
-      document.getElementById('errorModalMessage').innerText = message;
+    function showErrorModal(message, customTitle) {
+      const titleEl = document.getElementById('errorModalTitle');
+      const msg = String(message || '');
+
+      // Auto-detect stoppage-duration errors so the title is correct even when
+      // the error comes back from the server without an explicit title.
+      let title = customTitle;
+      if (!title) {
+        if (/stoppage duration|exceeds the maximum allowed/i.test(msg)) {
+          title = 'STOPPAGE DURATION ERROR';
+        } else if (/duplicate/i.test(msg)) {
+          title = 'DUPLICATE ERROR';
+        } else {
+          title = 'ERROR';
+        }
+      }
+
+      titleEl.innerText = title;
+      document.getElementById('errorModalMessage').innerText = msg;
       document.getElementById('errorModal').classList.remove('hidden');
     }
 
@@ -844,6 +1106,30 @@
 
       if (isEditing) {
         formDataObj.action = 'updateLog';
+      }
+
+      // ===== DATE + SHIFT LOCK CHECK (client side) =====
+      if (isDateCurrentlyLocked && currentLockedDate) {
+        // Force locked values even if the disabled controls were somehow bypassed
+        formDataObj.date = currentLockedDate;
+        formDataObj.shift = 'Night';
+
+        if (formDataObj.date !== currentLockedDate || formDataObj.shift !== 'Night') {
+          showErrorModal(
+            `⚠️ Between 19:00 and 08:00 the Date is locked to ${formatDateDisplay(currentLockedDate)} ` +
+            `and the Shift is locked to Night.\n\nPlease confirm the correct values for the current shift.`
+          );
+          resetSubmitButton();
+          return;
+        }
+      }
+
+      // ===== DOWNTIME DURATION LIMIT (client side) =====
+      const durationError = validateDowntimeDurationClientSide(formDataObj);
+      if (durationError) {
+        showErrorModal(durationError);
+        resetSubmitButton();
+        return;
       }
 
       // Quick client-side warning (best-effort – server is authoritative)
@@ -1103,6 +1389,9 @@
         startMinSel.add(new Option(minStr, minStr));
         endMinSel.add(new Option(minStr, minStr));
       }
+
+      // Apply the date-lock immediately after UI is ready
+      applyDateLock();
     }
 
     function updateDowntimeTimes() {
@@ -1289,6 +1578,11 @@
 
       // Auto-hide modules menu after selection on small screens
       closeModulesMenu();
+
+      // Re-apply date lock when switching back to an entry form
+      if (mode === 'production' || mode === 'downtime') {
+        applyDateLock();
+      }
     }
 
     function syncProductFields() {
@@ -1351,6 +1645,9 @@
       document.getElementById('calculatedDurationText').value = '00:00';
       
       document.getElementById('comments').value = '';
+
+      // Re-apply date lock after reset (keeps the locked value if we are inside the window)
+      applyDateLock();
 
       resetSubmitButton();
     }
