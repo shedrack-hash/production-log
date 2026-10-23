@@ -336,7 +336,7 @@
             <div>
               <label class="block text-xs font-semibold text-gray-600 uppercase">Date</label>
               <input type="date" id="date" name="date" required onchange="validateDate(this)" class="w-full mt-1 px-3 py-2 border rounded bg-white font-medium text-gray-700 focus:ring-2 focus:ring-blue-400 focus:outline-none">
-              <p id="dateLockHint" class="date-lock-hint">Date locked for night-shift period (20:00–08:00)</p>
+              <p id="dateLockHint" class="date-lock-hint">Date &amp; Shift locked for the current shift period</p>
             </div>
             <div>
               <label class="block text-xs font-semibold text-gray-600 uppercase">Shift</label>
@@ -586,6 +586,7 @@
     // Date-lock state (recomputed every minute)
     let isDateCurrentlyLocked = false;
     let currentLockedDate = null; // YYYY-MM-DD
+    let currentLockedShift = null; // 'Day' | 'Night' | null
 
     // ===== SESSION INACTIVITY TIMEOUT (6 hours) =====
     const SESSION_TIMEOUT_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -718,10 +719,13 @@
     }
 
     /**
-     * Client-side computation of the 20:00–08:00 date-lock window.
+     * Client-side computation of the date/shift lock windows.
      * Matches the server-side logic in computeDateLockInfo().
      *
-     * From 20:00 on day D until 08:00 on day D+1 the Date field is locked to day D.
+     * Day lock  : 09:00 – 19:30 → Date = today, Shift = Day
+     * Night lock: 20:00 – 08:00 → Date = night-start date, Shift = Night
+     * Gaps (08:00–09:00 and 19:30–20:00) are unlocked.
+     * View Log Records is never affected.
      */
     function computeClientDateLockInfo() {
       const now = new Date();
@@ -730,41 +734,42 @@
       const d = now.getDate();
       const minutesSinceMidnight = now.getHours() * 60 + now.getMinutes();
 
-      const LOCK_START_MIN = 20 * 60; // 20:00
-      const LOCK_END_MIN   =  8 * 60; // 08:00
+      const DAY_LOCK_START = 9 * 60;        // 09:00
+      const DAY_LOCK_END   = 19 * 60 + 30;  // 19:30
+      const NIGHT_LOCK_START = 20 * 60;     // 20:00
+      const NIGHT_LOCK_END   =  8 * 60;     // 08:00
 
-      if (minutesSinceMidnight >= LOCK_START_MIN) {
-        // After 20:00 today → locked to today
+      if (minutesSinceMidnight >= DAY_LOCK_START && minutesSinceMidnight <= DAY_LOCK_END) {
         const locked = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        return { isDateLocked: true, lockedDate: locked };
-      } else if (minutesSinceMidnight < LOCK_END_MIN) {
-        // Before 08:00 today → locked to yesterday
+        return { isDateLocked: true, lockedDate: locked, lockedShift: 'Day' };
+      } else if (minutesSinceMidnight >= NIGHT_LOCK_START) {
+        const locked = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        return { isDateLocked: true, lockedDate: locked, lockedShift: 'Night' };
+      } else if (minutesSinceMidnight < NIGHT_LOCK_END) {
         const yesterday = new Date(y, m, d - 1);
         const locked = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
-        return { isDateLocked: true, lockedDate: locked };
+        return { isDateLocked: true, lockedDate: locked, lockedShift: 'Night' };
       }
-      // 08:00 – 19:59 → unlocked
-      return { isDateLocked: false, lockedDate: null };
+      return { isDateLocked: false, lockedDate: null, lockedShift: null };
     }
 
     /**
-     * Applies (or removes) the date + shift lock on the entry form.
-     * During the 20:00–08:00 window:
-     *   - Date is locked to the shift-start date
-     *   - Shift is locked to "Night"
+     * Applies (or removes) the date + shift lock on the Production / Downtime entry form only.
+     * View Log Records date & shift selectors are never touched.
      * Called on init and every 60 seconds thereafter.
      */
     function applyDateLock() {
       const info = computeClientDateLockInfo();
       isDateCurrentlyLocked = info.isDateLocked;
       currentLockedDate = info.lockedDate;
+      currentLockedShift = info.lockedShift;
 
       const dateInput = document.getElementById('date');
       const shiftSelect = document.getElementById('shift');
       const hint = document.getElementById('dateLockHint');
       if (!dateInput) return;
 
-      if (isDateCurrentlyLocked && currentLockedDate) {
+      if (isDateCurrentlyLocked && currentLockedDate && currentLockedShift) {
         // --- Date lock ---
         dateInput.value = currentLockedDate;
         dateInput.readOnly = true;
@@ -773,15 +778,17 @@
         dateInput.addEventListener('mousedown', preventDatePicker, true);
         dateInput.addEventListener('keydown', preventDatePicker, true);
 
-        // --- Shift lock to Night ---
+        // --- Shift lock ---
         if (shiftSelect) {
-          shiftSelect.value = 'Night';
+          shiftSelect.value = currentLockedShift;
           shiftSelect.disabled = true;
           shiftSelect.classList.add('shift-locked');
         }
 
         if (hint) {
-          hint.textContent = `Note: Date locked to ${formatDateDisplay(currentLockedDate)} & Shift locked to Night Shift`;
+          const shiftLabel = currentLockedShift === 'Day' ? 'Day Shift' : 'Night Shift';
+          const windowLabel = currentLockedShift === 'Day' ? '09:00–19:30' : '20:00–08:00';
+          hint.textContent = `Note: Date locked to ${formatDateDisplay(currentLockedDate)} & Shift locked to ${shiftLabel} (${windowLabel})`;
           hint.classList.add('visible');
         }
       } else {
@@ -814,7 +821,7 @@
       }
     }
 
-    // Re-evaluate the lock every 60 seconds so it opens/closes automatically at 08:00 / 20:00
+    // Re-evaluate the lock every 60 seconds so it opens/closes automatically at window boundaries
     setInterval(applyDateLock, 60 * 1000);
 
     function togglePasswordVisibility() {
@@ -956,10 +963,11 @@
     }
 
     function validateDate(inputElement) {
-      // When the date is locked we force it back to the locked value
-      if (isDateCurrentlyLocked && currentLockedDate) {
+      // Only enforce lock on the entry-form date field (id="date"), never on viewLogDate
+      if (inputElement.id === 'date' && isDateCurrentlyLocked && currentLockedDate) {
         if (inputElement.value !== currentLockedDate) {
-          showErrorModal(`⚠️ Date is locked to ${formatDateDisplay(currentLockedDate)} between 20:00 and 08:00.\n\nPlease confirm the correct date for the current shift.`);
+          const windowLabel = currentLockedShift === 'Day' ? '09:00 and 19:30' : '20:00 and 08:00';
+          showErrorModal(`⚠️ Date is locked to ${formatDateDisplay(currentLockedDate)} between ${windowLabel}.\n\nPlease confirm the correct date for the current shift.`);
           inputElement.value = currentLockedDate;
         }
         return;
@@ -1233,7 +1241,7 @@
       if (!title) {
         if (/stoppage duration|exceeds the maximum allowed/i.test(msg)) {
           title = 'STOPPAGE DURATION ERROR';
-        } else if (/duplicate/i.test(msg)) {
+        } else if (/duplicate|already exists in row/i.test(msg)) {
           title = 'DUPLICATE ERROR';
         } else {
           title = 'ERROR';
@@ -1266,7 +1274,7 @@
       const formElement = document.getElementById('prodForm');
       const formDataObj = Object.fromEntries(new FormData(formElement));
       
-      // Section is sent ONLY so the server can validate Machine / Product / Unit. It is never saved to the sheet.
+      // Section is sent ONLY so the server can validate Machine / Product / Unit. It is never saved to the database.
       formDataObj.section = document.getElementById('section').value;
       if (formDataObj.entryType === 'downtime') {
         // Downtime has no product selection
@@ -1283,15 +1291,18 @@
       }
 
       // ===== DATE + SHIFT LOCK CHECK (client side) =====
-      if (isDateCurrentlyLocked && currentLockedDate) {
+      // Applies only to Production / Downtime entry forms — View Logs is never locked.
+      if (isDateCurrentlyLocked && currentLockedDate && currentLockedShift) {
         // Force locked values even if the disabled controls were somehow bypassed
         formDataObj.date = currentLockedDate;
-        formDataObj.shift = 'Night';
+        formDataObj.shift = currentLockedShift;
 
-        if (formDataObj.date !== currentLockedDate || formDataObj.shift !== 'Night') {
+        if (formDataObj.date !== currentLockedDate || formDataObj.shift !== currentLockedShift) {
+          const shiftLabel = currentLockedShift === 'Day' ? 'Day' : 'Night';
+          const windowLabel = currentLockedShift === 'Day' ? '09:00 and 19:30' : '20:00 and 08:00';
           showErrorModal(
-            `⚠️ Between 20:00 and 08:00 the Date is locked to ${formatDateDisplay(currentLockedDate)} ` +
-            `and the Shift is locked to Night.\n\nPlease confirm the correct values for the current shift.`
+            `⚠️ Between ${windowLabel} the Date is locked to ${formatDateDisplay(currentLockedDate)} ` +
+            `and the Shift is locked to ${shiftLabel}.\n\nPlease confirm the correct values for the current shift.`
           );
           resetSubmitButton();
           return;
@@ -1414,7 +1425,7 @@
         })
         .then(result => {
           if (!result.success) throw new Error(result.error || 'Unknown script compilation error.');
-          showToast('✅ Saved to sheet');
+          showToast('✅ Saved to database successfuly');
         })
         .catch(err => {
           console.error('Background submission failed: ', err);
@@ -1427,7 +1438,7 @@
           } else {
             note = '\n\nPlease re-enter this entry.';
           }
-          showErrorModal('⚠️ This entry was NOT saved.\n\n' + err.message + note);
+          showErrorModal('⚠️ This Entry was NOT saved.\n\n' + err.message + note);
         })
         .finally(() => { pendingSubmissions--; });
     }
